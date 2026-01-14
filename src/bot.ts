@@ -1,6 +1,5 @@
 import { Client, GatewayIntentBits, Events, Partials, Message } from 'discord.js';
 import dotenv from 'dotenv';
-import fetch from 'node-fetch'; // ensure installed
 
 dotenv.config();
 
@@ -9,9 +8,9 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent, // <-- required to read attachments & content
+    GatewayIntentBits.MessageContent, // Required to access message content and attachments
   ],
-  partials: [Partials.Channel] // <-- required for DM channels
+  partials: [Partials.Channel]
 });
 
 client.once(Events.ClientReady, (c) => {
@@ -21,57 +20,80 @@ client.once(Events.ClientReady, (c) => {
 client.on(Events.MessageCreate, async (message: Message) => {
   if (message.author.bot) return; 
   
-  // Extract attachments as URLs
-  const attachments = [...message.attachments.values()].map(a => ({
-    url: a.url,
-    name: a.name,
-    contentType: a.contentType
+  // Extract attachments
+  const attachments = message.attachments.map(attachment => ({
+    url: attachment.url,
+    name: attachment.name,
+    contentType: attachment.contentType,
+    size: attachment.size
   }));
-
-  const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
-  if (!N8N_WEBHOOK_URL) {
-    console.warn('❌ N8N_WEBHOOK_URL is not defined in environment.');
-    return;
-  }
-
+  
   if (message.channel.isDMBased()) {
-    console.log(`📩 DM from ${message.author.tag}:`, message.content, attachments);
-
-    const body = {
-      type: 'direct_message',
-      userId: message.author.id,
-      message: message.content,
-      attachments // <-- now included
-    };
-
-    await fetch(N8N_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-
+    console.log(`📩 Received DM from ${message.author.tag}: ${message.content}`);
+    if (attachments.length > 0) {
+      console.log(`📎 ${attachments.length} attachment(s) received`);
+    }
+    
+    try {
+      const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
+      if (N8N_WEBHOOK_URL) {
+        const body = {
+          type: 'direct_message',
+          userId: message.author.id,
+          message: message.content,
+          attachments: attachments // Include attachments in payload
+        };
+        await fetch(N8N_WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body)
+        });
+      } else {
+        console.warn('N8N_WEBHOOK_URL is not defined in environment.');
+      }
+      console.log(`✉️ Replied to ${message.author.tag}`);
+    } catch (error) {
+      console.error('❌ Error sending reply:', error);
+    }
   } else if (message.mentions.has(client.user!.id)) {
-    console.log(`💬 Mention in server from ${message.author.tag}:`, message.content, attachments);
-
-    const body = {
-      type: 'channel_mention',
-      userId: message.author.id,
-      message: message.content,
-      channelId: message.channel.id,
-      attachments // <-- now included
-    };
-
-    await fetch(N8N_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    console.log(`💬 Mentioned in channel by ${message.author.tag}: ${message.content}`);
+    if (attachments.length > 0) {
+      console.log(`📎 ${attachments.length} attachment(s) received`);
+    }
+    
+    const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
+    if (N8N_WEBHOOK_URL) {
+      const body = {
+        type: 'channel_mention',
+        userId: message.author.id,
+        message: message.content,
+        channelId: message.channel.id,
+        attachments: attachments // Include attachments in payload
+      };
+      await fetch(N8N_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+    } else {
+      console.warn('N8N_WEBHOOK_URL is not defined in environment.');
+    }
+    
+    try {
+      console.log(`✉️ Replied to ${message.author.tag} in channel`);
+    } catch (error) {
+      console.error('❌ Error sending reply:', error);
+    }
   }
 });
 
 const token = process.env.DISCORD_BOT_TOKEN;
 if (!token) {
-  console.error('❌ DISCORD_BOT_TOKEN is not defined in .env');
+  console.error('❌ Error: DISCORD_BOT_TOKEN is not defined in .env file');
   process.exit(1);
 }
 
